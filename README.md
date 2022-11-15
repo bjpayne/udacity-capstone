@@ -1,2 +1,3 @@
-# udacity-go-building-for-the-capstone
-Udacity Golang - Capstone
+# UDACITY - Capstone
+
+Capstone CRM API project
