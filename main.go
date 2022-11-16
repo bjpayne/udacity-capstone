@@ -8,6 +8,7 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 	"log"
 	"net/http"
+	"strconv"
 	"time"
 )
 
@@ -16,18 +17,18 @@ const database string = "app.db"
 var db, _ = sql.Open("sqlite3", database)
 
 type Customer struct {
-	Id        uint16
-	FirstName string
-	LastName  string
-	Email     string
-	Role      string
-	Phone     string
-	Street    string
-	City      string
-	State     string
-	Zip       string
-	Contacted int
-	CreatedAt string
+	Id        int    `json:"id"`
+	FirstName string `json:"first_name"`
+	LastName  string `json:"last_name"`
+	Email     string `json:"email"`
+	Role      string `json:"role"`
+	Phone     string `json:"phone"`
+	Street    string `json:"street"`
+	City      string `json:"city"`
+	State     string `json:"state"`
+	Zip       string `json:"zip"`
+	Contacted bool   `json:"contacted"`
+	CreatedAt string `json:"created_at"`
 }
 
 func index(response http.ResponseWriter, request *http.Request) {
@@ -54,7 +55,7 @@ func index(response http.ResponseWriter, request *http.Request) {
 		)
 
 		if err != nil {
-			log.Fatal(err)
+			fatal(response, err)
 		}
 
 		customers = append(customers, customer)
@@ -73,28 +74,9 @@ func index(response http.ResponseWriter, request *http.Request) {
 func show(response http.ResponseWriter, request *http.Request) {
 	vars := mux.Vars(request)
 
-	row := db.QueryRow("SELECT * FROM customers where id = ?", vars["id"])
+	customerId, _ := strconv.Atoi(vars["id"])
 
-	customer := Customer{}
-
-	err := row.Scan(
-		&customer.Id,
-		&customer.FirstName,
-		&customer.LastName,
-		&customer.Email,
-		&customer.Phone,
-		&customer.Role,
-		&customer.Street,
-		&customer.City,
-		&customer.State,
-		&customer.Zip,
-		&customer.Contacted,
-		&customer.CreatedAt,
-	)
-
-	if err != nil {
-		log.Fatal(err)
-	}
+	customer := fetchCustomer(customerId)
 
 	encodedCustomer, err := json.Marshal(customer)
 
@@ -107,40 +89,28 @@ func show(response http.ResponseWriter, request *http.Request) {
 }
 
 func store(response http.ResponseWriter, request *http.Request) {
-	contacted := request.FormValue("contacted")
+	input := Customer{}
 
-	_contacted := 0
+	inputDecodeError := json.NewDecoder(request.Body).Decode(&input)
 
-	if contacted != "" {
-		_contacted = 1
-	}
-
-	customer := Customer{
-		FirstName: request.FormValue("first_name"),
-		LastName:  request.FormValue("last_name"),
-		Email:     request.FormValue("email"),
-		Role:      request.FormValue("role"),
-		Phone:     request.FormValue("phone"),
-		Street:    request.FormValue("street"),
-		City:      request.FormValue("city"),
-		State:     request.FormValue("state"),
-		Zip:       request.FormValue("zip"),
-		Contacted: _contacted,
+	if inputDecodeError != nil {
+		response.WriteHeader(500)
+		log.Fatal(inputDecodeError)
 	}
 
 	insertResult, storeCustomerError := db.Exec(
 		"INSERT INTO customers VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 		nil,
-		customer.FirstName,
-		customer.LastName,
-		customer.Email,
-		customer.Role,
-		customer.Phone,
-		customer.Street,
-		customer.City,
-		customer.State,
-		customer.Zip,
-		customer.Contacted,
+		input.FirstName,
+		input.LastName,
+		input.Email,
+		input.Role,
+		input.Phone,
+		input.Street,
+		input.City,
+		input.State,
+		input.Zip,
+		input.Contacted,
 		time.Now(),
 	)
 
@@ -150,7 +120,105 @@ func store(response http.ResponseWriter, request *http.Request) {
 
 	newCustomerId, _ := insertResult.LastInsertId()
 
-	row := db.QueryRow("SELECT * FROM customers WHERE id = ?", newCustomerId)
+	customer := fetchCustomer(int(newCustomerId))
+
+	encodedCustomer, encodeCustomerError := json.Marshal(customer)
+
+	if encodeCustomerError != nil {
+		log.Println(encodeCustomerError)
+	}
+
+	response.Header().Set("Content-Type", "application/json")
+	response.Write(encodedCustomer)
+}
+
+func update(response http.ResponseWriter, request *http.Request) {
+	input := Customer{}
+
+	inputDecodeError := json.NewDecoder(request.Body).Decode(&input)
+
+	vars := mux.Vars(request)
+
+	customerId, _ := strconv.Atoi(vars["id"])
+
+	input.Id = customerId
+
+	if inputDecodeError != nil {
+		fatal(response, inputDecodeError)
+	}
+
+	query := `
+		UPDATE customers 
+		SET 
+		    first_name = ?,
+		    last_name = ?, 
+		    email = ?,
+		    role = ?,
+		    phone = ?,
+		    street = ?,
+		    city = ?,
+		    state = ?,
+		    zip = ?,
+		    contacted = ?
+		WHERE id = ?
+	`
+
+	_, updateCustomerError := db.Exec(
+		query,
+		input.FirstName,
+		input.LastName,
+		input.Email,
+		input.Role,
+		input.Phone,
+		input.Street,
+		input.City,
+		input.State,
+		input.Zip,
+		input.Contacted,
+		customerId,
+	)
+
+	if updateCustomerError != nil {
+		fatal(response, updateCustomerError)
+	}
+
+	customer := fetchCustomer(customerId)
+
+	encodedCustomer, encodeCustomerError := json.Marshal(customer)
+
+	if encodeCustomerError != nil {
+		fatal(response, encodeCustomerError)
+	}
+
+	response.Header().Set("Content-Type", "application/json")
+	response.Write(encodedCustomer)
+}
+
+func remove(response http.ResponseWriter, request *http.Request) {
+	vars := mux.Vars(request)
+
+	customerId, _ := strconv.Atoi(vars["id"])
+
+	query := "DELETE FROM customers WHERE id = ?"
+
+	_, err := db.Exec(query, customerId)
+
+	if err != nil {
+		fatal(response, err)
+	}
+
+	message := map[string]string{"message": "customer " + strconv.Itoa(customerId) + " deleted"}
+
+	encodedMessage, _ := json.Marshal(message)
+
+	response.Header().Set("Content-Type", "application/json")
+	response.Write(encodedMessage)
+}
+
+func fetchCustomer(customerId int) Customer {
+	row := db.QueryRow("SELECT * FROM customers WHERE id = ?", customerId)
+
+	customer := Customer{}
 
 	scanError := row.Scan(
 		&customer.Id,
@@ -171,22 +239,12 @@ func store(response http.ResponseWriter, request *http.Request) {
 		log.Fatal(scanError)
 	}
 
-	encodedCustomer, encodeCustomerError := json.Marshal(customer)
-
-	if encodeCustomerError != nil {
-		log.Println(encodeCustomerError)
-	}
-
-	response.Header().Set("Content-Type", "application/json")
-	response.Write(encodedCustomer)
+	return customer
 }
 
-func update(response http.ResponseWriter, request *http.Request) {
-
-}
-
-func remove(response http.ResponseWriter, request *http.Request) {
-
+func fatal(response http.ResponseWriter, message any) {
+	response.WriteHeader(500)
+	log.Fatal(message)
 }
 
 func main() {
@@ -196,7 +254,7 @@ func main() {
 	router.HandleFunc("/customers/{id}", show).Methods("GET")
 	router.HandleFunc("/", store).Methods("POST")
 	router.HandleFunc("/customers/{id}", update).Methods("PUT")
-	router.HandleFunc("/", remove).Methods("DELETE")
+	router.HandleFunc("/customers/{id}", remove).Methods("DELETE")
 
 	fmt.Println("Server is starting on port 3000...")
 	err := http.ListenAndServe(":3000", router)
