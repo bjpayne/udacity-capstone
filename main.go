@@ -199,6 +199,8 @@ func remove(response http.ResponseWriter, request *http.Request) {
 
 	customerId, _ := strconv.Atoi(vars["id"])
 
+	customer := fetchCustomer(customerId)
+
 	query := "DELETE FROM customers WHERE id = ?"
 
 	_, err := db.Exec(query, customerId)
@@ -207,7 +209,7 @@ func remove(response http.ResponseWriter, request *http.Request) {
 		fatal(response, err)
 	}
 
-	message := map[string]string{"message": "customer " + strconv.Itoa(customerId) + " deleted"}
+	message := map[string]string{"message": fmt.Sprintf("%s %s (%s) deleted", customer.FirstName, customer.LastName, customer.Email)}
 
 	encodedMessage, _ := json.Marshal(message)
 
