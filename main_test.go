@@ -1,16 +1,18 @@
 package main
 
 import (
+	"encoding/json"
 	"github.com/gorilla/mux"
 	_ "github.com/gorilla/mux"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 )
 
 func TestIndexHandler(t *testing.T) {
-	req, err := http.NewRequest("GET", "/", nil)
+	req, err := http.NewRequest("GET", "/customers", nil)
 
 	if err != nil {
 		t.Fatal(err)
@@ -65,6 +67,8 @@ func TestShowHandler(t *testing.T) {
 	}
 }
 
+var storedCustomer Customer
+
 func TestStoreHandler(t *testing.T) {
 	requestBody := strings.NewReader(`
 		{
@@ -91,6 +95,12 @@ func TestStoreHandler(t *testing.T) {
 	handler := http.HandlerFunc(store)
 	handler.ServeHTTP(rr, req)
 
+	decodeResponseError := json.NewDecoder(rr.Body).Decode(&storedCustomer)
+
+	if decodeResponseError != nil {
+		return
+	}
+
 	// Checks for 200 status code
 	if status := rr.Code; status != http.StatusOK {
 		t.Errorf("addCustomer returned wrong status code: got %v want %v",
@@ -107,20 +117,9 @@ func TestStoreHandler(t *testing.T) {
 func TestUpdateHandler(t *testing.T) {
 	router := mux.NewRouter()
 
-	requestBody := strings.NewReader(`
-		{
-			"first_name": "First11",
-			"last_name": "Last",
-			"email": "test@test.com",
-			"role": "customer",
-			"phone": "111-222-3344",
-			"street": "1234 test street",
-			"city": "City",
-			"state": "ST",
-			"zip": "12345-1111",
-			"contacted": true
-		}
-	`)
+	customerJson, _ := json.Marshal(storedCustomer)
+
+	requestBody := strings.NewReader(string(customerJson))
 
 	req, err := http.NewRequest("PUT", "/customers/4", requestBody)
 
@@ -148,7 +147,7 @@ func TestUpdateHandler(t *testing.T) {
 func TestRemoveHandler(t *testing.T) {
 	router := mux.NewRouter()
 
-	req, err := http.NewRequest("DELETE", "/customers/2", nil)
+	req, err := http.NewRequest("DELETE", "/customers/"+strconv.Itoa(storedCustomer.Id), nil)
 
 	if err != nil {
 		t.Fatal(err)

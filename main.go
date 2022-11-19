@@ -31,6 +31,10 @@ type Customer struct {
 	CreatedAt string `json:"created_at"`
 }
 
+func home(response http.ResponseWriter, request *http.Request) {
+	http.ServeFile(response, request, "static/index.html")
+}
+
 func index(response http.ResponseWriter, request *http.Request) {
 	rows, _ := db.Query("SELECT * FROM customers")
 
@@ -72,11 +76,17 @@ func index(response http.ResponseWriter, request *http.Request) {
 }
 
 func show(response http.ResponseWriter, request *http.Request) {
+	response.Header().Set("Content-Type", "application/json")
+
 	vars := mux.Vars(request)
 
 	customerId, _ := strconv.Atoi(vars["id"])
 
 	customer := fetchCustomer(customerId)
+
+	if customer.Id != customerId {
+		response.WriteHeader(404)
+	}
 
 	encodedCustomer, err := json.Marshal(customer)
 
@@ -84,7 +94,6 @@ func show(response http.ResponseWriter, request *http.Request) {
 		log.Println(err)
 	}
 
-	response.Header().Set("Content-Type", "application/json")
 	response.Write(encodedCustomer)
 }
 
@@ -133,6 +142,8 @@ func store(response http.ResponseWriter, request *http.Request) {
 }
 
 func update(response http.ResponseWriter, request *http.Request) {
+	response.Header().Set("Content-Type", "application/json")
+
 	input := Customer{}
 
 	inputDecodeError := json.NewDecoder(request.Body).Decode(&input)
@@ -140,6 +151,12 @@ func update(response http.ResponseWriter, request *http.Request) {
 	vars := mux.Vars(request)
 
 	customerId, _ := strconv.Atoi(vars["id"])
+
+	customer := fetchCustomer(customerId)
+
+	if customerId != customer.Id {
+		response.WriteHeader(404)
+	}
 
 	input.Id = customerId
 
@@ -182,7 +199,7 @@ func update(response http.ResponseWriter, request *http.Request) {
 		fatal(response, updateCustomerError)
 	}
 
-	customer := fetchCustomer(customerId)
+	customer = fetchCustomer(customerId)
 
 	encodedCustomer, encodeCustomerError := json.Marshal(customer)
 
@@ -190,16 +207,21 @@ func update(response http.ResponseWriter, request *http.Request) {
 		fatal(response, encodeCustomerError)
 	}
 
-	response.Header().Set("Content-Type", "application/json")
 	response.Write(encodedCustomer)
 }
 
 func remove(response http.ResponseWriter, request *http.Request) {
+	response.Header().Set("Content-Type", "application/json")
+
 	vars := mux.Vars(request)
 
 	customerId, _ := strconv.Atoi(vars["id"])
 
 	customer := fetchCustomer(customerId)
+
+	if customerId != customer.Id {
+		response.WriteHeader(404)
+	}
 
 	query := "DELETE FROM customers WHERE id = ?"
 
@@ -213,7 +235,6 @@ func remove(response http.ResponseWriter, request *http.Request) {
 
 	encodedMessage, _ := json.Marshal(message)
 
-	response.Header().Set("Content-Type", "application/json")
 	response.Write(encodedMessage)
 }
 
@@ -238,6 +259,10 @@ func fetchCustomer(customerId int) Customer {
 	)
 
 	if scanError != nil {
+		if scanError.Error() == "sql: no rows in result set" {
+			return customer
+		}
+
 		log.Fatal(scanError)
 	}
 
@@ -252,11 +277,14 @@ func fatal(response http.ResponseWriter, message any) {
 func main() {
 	router := mux.NewRouter()
 
-	router.HandleFunc("/", index).Methods("GET")
+	router.HandleFunc("/", home).Methods("GET")
+	router.HandleFunc("/customers", index).Methods("GET")
 	router.HandleFunc("/customers/{id}", show).Methods("GET")
-	router.HandleFunc("/", store).Methods("POST")
+	router.HandleFunc("/customers", store).Methods("POST")
 	router.HandleFunc("/customers/{id}", update).Methods("PUT")
 	router.HandleFunc("/customers/{id}", remove).Methods("DELETE")
+
+	router.PathPrefix("/").Handler(http.FileServer(http.Dir("./static/")))
 
 	fmt.Println("Server is starting on port 3000...")
 	err := http.ListenAndServe(":3000", router)
